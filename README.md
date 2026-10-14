@@ -2,7 +2,7 @@
 
 **A PDF reader that remembers everything across devices: your highlights, notes and the exact page you stopped on.**
 
-🔗 **Live demo:** (https://siddharthsinghpagesync.netlify.app/)
+🔗 **Live demo:** https://siddharthsinghpagesync.netlify.app/
 
 ![Highlighting text in PageSync](docs/screenshots/highlight.png)
 
