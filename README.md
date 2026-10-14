@@ -2,7 +2,7 @@
 
 **A PDF reader that remembers everything across devices: your highlights, notes and the exact page you stopped on.**
 
-🔗 **Live demo:** 'https://siddharthsinghpagesync.netlify.app/'
+🚀 **[Open the live app](https://siddharthsinghpagesync.netlify.app/)**
 
 ![Highlighting text in PageSync](docs/screenshots/highlight.png)
 
@@ -94,7 +94,7 @@ Everything runs on free tiers. The full step-by-step guide is in **[docs/SETUP.m
 4. Put your Supabase URL and publishable key in [`public/config.js`](public/config.js).
 5. Deploy the `public/` folder to Netlify, then open `/check.html` to verify everything.
 
-To preview locally, run `node serve.js` and open http://localhost:5173.
+To preview locally, run `node serve.js` and open [http://localhost:5173](http://localhost:5173).
 
 ## Project structure
 
@@ -130,9 +130,12 @@ pagesync/
 ## Author
 
 **Siddharth Singh**
-GitHub: [@SiddharthSingh726](https://github.com/SiddharthSingh726) · LinkedIn: www.linkedin.com/in/siddharth-singh-530440379
 
-If you find a bug or have an idea, feel free to open an issue.
+- 🌐 [Live App](https://siddharthsinghpagesync.netlify.app/)
+- 💻 [GitHub](https://github.com/SiddharthSingh726)
+- 💼 [LinkedIn](https://www.linkedin.com/in/siddharth-singh-530440379/)
+
+If you find a bug or have an idea, feel free to [open an issue](https://github.com/SiddharthSingh726/pagesync/issues).
 
 ## License
 
