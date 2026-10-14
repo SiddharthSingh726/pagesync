@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PageSync</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#2f5d50">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="viewer-page">
+  <div class="app">
+    <header class="vbar">
+      <a class="icon-btn" href="index.html" title="Back to library"><i data-icon="back"></i></a>
+      <div class="title">
+        <strong id="doc-title">Loading…</strong>
+        <div class="sync" id="sync"><span class="dot"></span><span id="sync-text">Connecting</span></div>
+      </div>
+      <div class="pager">
+        <input id="page-input" inputmode="numeric" aria-label="Page number" value="1">
+        <span id="page-count">/ –</span>
+      </div>
+      <button class="icon-btn" id="search-btn" title="Search (Ctrl+F)"><i data-icon="search"></i></button>
+      <button class="icon-btn hide-sm" id="zoom-out" title="Zoom out"><i data-icon="zoomOut"></i></button>
+      <button class="icon-btn hide-sm" id="zoom-fit" title="Fit to width"><i data-icon="fit"></i></button>
+      <button class="icon-btn hide-sm" id="zoom-in" title="Zoom in"><i data-icon="zoomIn"></i></button>
+      <button class="icon-btn" id="panel-btn" title="Notes & highlights"><i data-icon="list"></i></button>
+      <button class="icon-btn" id="more-btn" title="More"><i data-icon="more"></i></button>
+    </header>
+
+    <div class="searchbar" id="searchbar" hidden>
+      <input class="field" id="search-input" type="search" placeholder="Search in this PDF" autocomplete="off" enterkeyhint="search">
+      <span class="search-count" id="search-count"></span>
+      <button class="icon-btn" id="search-prev" title="Previous (Shift+Enter)"><i data-icon="chevUp"></i></button>
+      <button class="icon-btn" id="search-next" title="Next (Enter)"><i data-icon="chevDown"></i></button>
+      <button class="icon-btn" id="search-close" title="Close (Esc)"><i data-icon="x"></i></button>
+    </div>
+
+    <div class="main">
+      <div class="viewer" id="viewer">
+        <div class="pages" id="pages"></div>
+        <div class="loader" id="loader"><div class="box"><div class="spinner"></div><div id="loader-text">Opening PDF…</div></div></div>
+      </div>
+
+      <aside class="panel" id="panel" hidden>
+        <div class="panel-head">
+          <div class="tabs panel-tabs" role="tablist">
+            <button type="button" role="tab" data-ptab="notes" aria-selected="true">Notes</button>
+            <button type="button" role="tab" data-ptab="contents" aria-selected="false">Contents</button>
+          </div>
+          <button class="icon-btn" id="panel-close" title="Close"><i data-icon="x"></i></button>
+        </div>
+        <div class="panel-body" id="panel-body"></div>
+      </aside>
+
+      <div class="dock" id="dock" role="toolbar" aria-label="Tools">
+        <button class="icon-btn" data-tool="hand" title="Scroll (H)"><i data-icon="hand"></i></button>
+        <button class="icon-btn" data-tool="texthl" title="Highlight text (L)"><i data-icon="textHl"></i></button>
+        <button class="icon-btn" data-tool="highlight" title="Highlight an area (A)"><i data-icon="area"></i></button>
+        <button class="icon-btn" data-tool="marker" title="Freehand highlighter (M)"><i data-icon="marker"></i></button>
+        <button class="icon-btn" data-tool="pen" title="Pen (P)"><i data-icon="pen"></i></button>
+        <button class="icon-btn" data-tool="text" title="Text (T)"><i data-icon="text"></i></button>
+        <button class="icon-btn" data-tool="note" title="Sticky note (N)"><i data-icon="note"></i></button>
+        <button class="icon-btn" data-tool="eraser" title="Eraser (E)"><i data-icon="eraser"></i></button>
+        <span class="sep"></span>
+        <button class="swatch-btn" id="style-btn" title="Color & size"><span id="swatch"></span></button>
+        <span class="sep"></span>
+        <button class="icon-btn" id="undo" title="Undo (Ctrl+Z)" disabled><i data-icon="undo"></i></button>
+        <button class="icon-btn" id="redo" title="Redo (Ctrl+Shift+Z)" disabled><i data-icon="redo"></i></button>
+      </div>
+
+      <div class="style-pop" id="style-pop" hidden>
+        <div class="seg" id="markup-modes" hidden>
+          <button data-mode="highlight" title="Highlight"><i data-icon="textHl"></i>Highlight</button>
+          <button data-mode="underline" title="Underline"><i data-icon="underline"></i>Underline</button>
+          <button data-mode="strike" title="Strikethrough"><i data-icon="strike"></i>Strike</button>
+        </div>
+        <div class="swatches" id="swatches"></div>
+        <div>
+          <label><span id="size-label">Size</span><span id="size-value"></span></label>
+          <input type="range" id="size">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script type="module" src="js/viewer.js"></script>
+</body>
+</html>

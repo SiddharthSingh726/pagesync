@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Setup check · PageSync</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#2f5d50">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .check-wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+    .check-wrap h1 { font-size: 24px; margin: 18px 0 4px; letter-spacing: -.01em; }
+    .check-wrap > p { color: var(--ink-2); margin: 0 0 18px; }
+    .steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+    .step { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; grid-template-columns: 26px 1fr; gap: 10px; }
+    .step .dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; background: var(--surface-2); color: var(--ink-3); }
+    .step.ok .dot { background: var(--ok); color: #fff; }
+    .step.fail .dot { background: var(--danger); color: #fff; }
+    .step.warn .dot { background: var(--warn); color: #fff; }
+    .step.run .dot { border: 2px solid var(--line); border-top-color: var(--accent); background: transparent; animation: spin .8s linear infinite; }
+    .step strong { display: block; font-size: 14.5px; }
+    .step .msg { color: var(--ink-2); font-size: 13.5px; margin-top: 2px; overflow-wrap: anywhere; }
+    .step .msg code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+    .step .btn { margin-top: 10px; height: 36px; }
+    .summary { margin-top: 18px; padding: 14px 16px; border-radius: 12px; font-weight: 600; }
+    .summary.ok { background: color-mix(in srgb, var(--ok) 14%, var(--surface)); }
+    .summary.fail { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
+  </style>
+</head>
+<body>
+  <div class="check-wrap">
+    <a class="link-btn" href="index.html" style="padding:0">← Back to library</a>
+    <h1>Setup check</h1>
+    <p>Tests each piece of your PageSync setup from this browser and tells you exactly what to fix.</p>
+    <ol class="steps" id="steps"></ol>
+    <div class="summary" id="summary" hidden></div>
+    <div style="margin-top:16px"><button class="btn" id="again" hidden>Run again</button></div>
+  </div>
+  <script src="js/common.js"></script>
+  <script type="module">
+    import * as backend from './js/backend.js';
+    const $ = (id) => document.getElementById(id);
+    const esc = PS.escapeHtml;
+    const list = $('steps');
+    let problems = 0;
+
+    function step(title) {
+      const li = document.createElement('li');
+      li.className = 'step run';
+      li.innerHTML = `<span class="dot"></span><div><strong>${esc(title)}</strong><div class="msg"></div></div>`;
+      list.appendChild(li);
+      const set = (state, html) => {
+        li.className = 'step ' + state;
+        li.querySelector('.dot').textContent = state === 'ok' ? '✓' : state === 'fail' ? '!' : state === 'warn' ? '?' : '';
+        li.querySelector('.msg').innerHTML = html || '';
+        if (state === 'fail') problems++;
+        return li;
+      };
+      return { ok: (h) => set('ok', h), fail: (h) => set('fail', h), warn: (h) => set('warn', h), el: li };
+    }
+    const mb = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`);
+
+    async function run() {
+      list.innerHTML = '';
+      problems = 0;
+      $('summary').hidden = $('again').hidden = true;
+      const done = () => {
+        const s = $('summary');
+        s.hidden = false;
+        $('again').hidden = false;
+        s.className = 'summary ' + (problems ? 'fail' : 'ok');
+        s.textContent = problems ? `${problems} thing${problems > 1 ? 's' : ''} to fix. Follow the hint above, then press "Run again".` : 'Everything works! PageSync is ready for big PDFs.';
+      };
+
+      // 1. config + login
+      const s1 = step('Website settings (config.js) and sign-in');
+      if (!backend.configured) {
+        s1.fail(esc(backend.configProblem === 'not-set' ? 'config.js still has the placeholder values.' : backend.configProblem));
+        return done();
+      }
+      const session = await backend.requireAuth();
+      if (!session) {
+        s1.fail("You're offline. Connect to the internet and run this again.");
+        return done();
+      }
+      s1.ok(`Signed in as ${esc(session.user.email || '')}`);
+
+      // 2. function
+      const s2 = step('Storage function (pdf-storage)');
+      let limits;
+      try {
+        limits = await backend.callStorage('limits');
+        s2.ok('Deployed and answering.');
+      } catch (e) {
+        if (e.code === 'NO_FUNCTION') s2.fail('Not found. In Supabase → Edge Functions, deploy a function named exactly <code>pdf-storage</code> with the code from <code>supabase/functions/pdf-storage/index.ts</code>.');
+        else if (e.status === 401) s2.fail('Supabase rejected the request before it reached the function. Open the function’s settings and turn off <b>Enforce JWT verification</b> (Verify JWT), then save.');
+        else if (/service key|SUPABASE_URL/i.test(e.message)) s2.fail(esc(e.message));
+        else if (e.offline) s2.fail("Couldn't reach Supabase. Check your internet connection.");
+        else s2.fail(esc(e.message));
+        return done();
+      }
+
+      // 3. storage secrets + bucket access from the function
+      const s3 = step('Storage bucket and keys');
+      if (!limits.cloudStorage) {
+        s3.fail('The function has no storage settings yet. In Supabase → Edge Functions → Secrets, add <code>S3_ENDPOINT</code>, <code>S3_BUCKET</code>, <code>S3_ACCESS_KEY_ID</code> and <code>S3_SECRET_ACCESS_KEY</code>. Until then, uploads use Supabase Storage (50 MB max).');
+        return done();
+      }
+      let t;
+      try {
+        t = await backend.callStorage('selftest');
+        s3.ok(`${esc(t.provider)} · bucket <code>${esc(t.bucket)}</code> · region <code>${esc(t.region)}</code>`);
+      } catch (e) {
+        s3.fail(esc(e.message));
+        return done();
+      }
+
+      // 4. upload from this browser (CORS)
+      const s4 = step('Upload from this website (browser permission / CORS)');
+      const payload = `PageSync check ${new Date().toISOString()}`;
+      let uploaded = false;
+      try {
+        const r = await fetch(t.putUrl, { method: 'PUT', body: new Blob([payload]) });
+        if (!r.ok) throw Object.assign(new Error(`status ${r.status}`), { status: r.status });
+        uploaded = true;
+        s4.ok('This website can upload to your bucket.');
+      } catch (e) {
+        const origin = location.origin;
+        const help = e.status
+          ? `The bucket refused the upload (${esc(e.message)}). Check that the key has <b>Read and Write</b> access to this bucket.`
+          : `Your bucket doesn't allow uploads from <code>${esc(origin)}</code> yet.`;
+        const li = s4.fail(help + (t.isAdmin ? ' Press the button to fix it automatically.' : ' Ask the owner to run this check, or set the bucket’s CORS rules as shown in the README.'));
+        if (t.isAdmin && !e.status) {
+          const btn = document.createElement('button');
+          btn.className = 'btn primary';
+          btn.textContent = 'Fix automatically';
+          btn.onclick = async () => {
+            btn.disabled = true;
+            btn.textContent = 'Fixing…';
+            try {
+              const res = await backend.callStorage('fix-cors', { origins: [origin] });
+              btn.textContent = 'Done. Checking again…';
+              PS.toast(`Allowed: ${res.origins.join(', ')}`);
+              setTimeout(run, 1500);
+            } catch (err) {
+              btn.remove();
+              li.querySelector('.msg').innerHTML += `<br><br><b>Automatic fix failed:</b> ${esc(err.message)}`;
+            }
+          };
+          li.querySelector('.msg').after(btn);
+        } else if (!t.isAdmin) {
+          li.querySelector('.msg').innerHTML += '<br>Tip: put your email in the <code>UNLIMITED_EMAILS</code> (or <code>ADMIN_EMAILS</code>) secret to get the automatic fix button.';
+        }
+      }
+
+      // 5. download back
+      const s5 = step('Download from your bucket');
+      if (!uploaded) {
+        s5.warn('Skipped. The upload test above needs to pass first.');
+      } else {
+        try {
+          const r = await fetch(t.getUrl);
+          const text = await r.text();
+          if (!r.ok || text !== payload) throw new Error(r.ok ? 'the file came back different' : `status ${r.status}`);
+          s5.ok('Downloads work.');
+        } catch (e) {
+          s5.fail(`Upload worked but download didn't (${esc(e.message)}). Make sure <b>GET</b> is allowed in the bucket's CORS rules.`);
+        }
+      }
+      await backend.callStorage('selftest-cleanup').catch(() => {}); // remove the test file even if a step failed
+
+      // 6. limits
+      const s6 = step('Your limits');
+      s6.ok(
+        `PDFs up to <b>${mb(limits.maxFileBytes)}</b> each · ` +
+          (limits.quotaBytes == null ? '<b>no storage limit</b> for you' : `<b>${mb(limits.quotaBytes)}</b> per person (you've used ${mb(limits.usedBytes)})`) +
+          (limits.isAdmin ? ' · you are an admin' : '')
+      );
+      done();
+    }
+
+    $('again').onclick = run;
+    run();
+  </script>
+</body>
+</html>

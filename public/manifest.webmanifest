@@ -1,0 +1,10 @@
+{
+  "name": "PageSync",
+  "short_name": "PageSync",
+  "description": "Your PDFs, with highlights and notes synced across devices.",
+  "start_url": "./index.html", "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#2f5d50",
+  "icons": [{ "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

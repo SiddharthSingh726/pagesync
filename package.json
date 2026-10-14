@@ -1,0 +1,14 @@
+{
+  "name": "pagesync",
+  "version": "1.0.0",
+  "description": "Multi-user PDF reader in the cloud: highlights, notes and last-read page synced across devices, offline reading, PDFs up to 300 MB in S3-compatible storage.",
+  "author": "Siddharth Singh",
+  "scripts": {
+    "start": "node serve.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true
+}

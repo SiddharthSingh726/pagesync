@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sign in · PageSync</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#2f5d50">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="login-wrap">
+    <form class="login-card" id="form" hidden novalidate>
+      <div class="brand"><img src="icons/icon.svg" width="32" height="32" alt=""> PageSync</div>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-mode="signin" aria-selected="true">Sign in</button>
+        <button type="button" role="tab" data-mode="signup" aria-selected="false">Create account</button>
+      </div>
+      <p id="intro">Your PDFs, highlights and notes on every device, even offline.</p>
+      <input class="field" type="email" id="email" placeholder="Email" autocomplete="username" required>
+      <input class="field" type="password" id="password" placeholder="Password" autocomplete="current-password" required minlength="6">
+      <input class="field" type="password" id="password2" placeholder="Repeat password" autocomplete="new-password" hidden>
+      <div class="error-text" id="error" role="alert"></div>
+      <div class="ok-text" id="ok" role="status"></div>
+      <button class="btn primary" type="submit" id="submit">Sign in</button>
+      <button class="link-btn" type="button" id="forgot">Forgot password?</button>
+    </form>
+    <div class="login-card" id="setup" hidden>
+      <div class="brand"><img src="icons/icon.svg" width="32" height="32" alt=""> PageSync</div>
+      <h2 style="margin:0;font-size:18px">Almost there</h2>
+      <p id="setup-msg">PageSync isn't connected to your Supabase project yet. Open <code>config.js</code>, paste your Project URL and publishable key, and upload the site again.</p>
+      <p>The README has step-by-step instructions.</p>
+    </div>
+  </main>
+  <script type="module">
+    import { configured, configProblem, signIn, signUp, sendPasswordReset, getSession, registerServiceWorker } from './js/backend.js';
+    registerServiceWorker();
+    const $ = (id) => document.getElementById(id);
+    const next = () => {
+      const n = new URLSearchParams(location.search).get('next') || 'index.html';
+      return /^[\w.-]+\.html(\?[\w=&%.-]*)?$/.test(n) ? n : 'index.html';
+    };
+    let mode = 'signin';
+
+    function setMode(m) {
+      mode = m;
+      for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-selected', String(b.dataset.mode === m));
+      $('password2').hidden = m !== 'signup';
+      $('password').autocomplete = m === 'signup' ? 'new-password' : 'current-password';
+      $('password').placeholder = m === 'signup' ? 'Choose a password (8+ characters)' : 'Password';
+      $('submit').textContent = m === 'signup' ? 'Create account' : 'Sign in';
+      $('forgot').hidden = m !== 'signin';
+      $('error').textContent = $('ok').textContent = '';
+    }
+
+    function friendly(err) {
+      const m = err.message || '';
+      if (err.offline) return "You're offline. Connect to the internet and try again.";
+      if (/invalid login/i.test(m)) return 'Wrong email or password.';
+      if (/email not confirmed/i.test(m)) return 'Please confirm your email first. Check your inbox (and spam folder) for the link.';
+      if (/signups? not allowed|signup.*disabled/i.test(m)) return 'New sign-ups are switched off for this PageSync.';
+      if (/already registered|already exists/i.test(m)) return 'An account with this email already exists. Try signing in.';
+      if (/rate limit|too many/i.test(m)) return 'Too many attempts. Please wait a few minutes and try again.';
+      if (/password.*(at least|characters|weak)/i.test(m)) return m;
+      if (/invalid path|not found|404/i.test(m)) return 'The Project URL in config.js looks wrong. It should be just https://xxxx.supabase.co';
+      if (/invalid api key|no api key|apikey/i.test(m)) return 'The key in config.js is not valid. Copy the Publishable (or anon public) key again from Supabase.';
+      return m;
+    }
+
+    if (!configured) {
+      $('setup').hidden = false;
+      if (configProblem !== 'not-set') $('setup-msg').textContent = configProblem;
+    } else {
+      const { session } = await getSession();
+      if (session) location.replace(next());
+      $('form').hidden = false;
+      if (new URLSearchParams(location.search).get('mode') === 'signup') setMode('signup');
+      $('email').focus();
+      for (const b of document.querySelectorAll('[data-mode]')) b.onclick = () => setMode(b.dataset.mode);
+
+      $('forgot').onclick = async () => {
+        $('error').textContent = $('ok').textContent = '';
+        const email = $('email').value.trim();
+        if (!email) {
+          $('error').textContent = 'Type your email above first, then tap "Forgot password?" again.';
+          $('email').focus();
+          return;
+        }
+        try {
+          await sendPasswordReset(email);
+          $('ok').textContent = `If ${email} has an account, a reset link is on its way. Check your inbox and spam folder.`;
+        } catch (err) {
+          $('error').textContent = friendly(err);
+        }
+      };
+
+      $('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        $('error').textContent = $('ok').textContent = '';
+        const email = $('email').value.trim();
+        const password = $('password').value;
+        if (!/^\S+@\S+\.\S+$/.test(email)) return ($('error').textContent = 'Please enter a valid email.');
+        if (mode === 'signup') {
+          if (password.length < 8) return ($('error').textContent = 'Use at least 8 characters for your password.');
+          if (password !== $('password2').value) return ($('error').textContent = "The two passwords don't match.");
+        }
+        const label = $('submit').textContent;
+        $('submit').disabled = true;
+        $('submit').textContent = mode === 'signup' ? 'Creating account…' : 'Signing in…';
+        try {
+          if (mode === 'signup') {
+            const { needsConfirmation } = await signUp(email, password);
+            if (needsConfirmation) {
+              setMode('signin');
+              $('email').value = email;
+              $('ok').textContent = `Almost done! We sent a confirmation link to ${email}. Open it, then sign in here.`;
+              return;
+            }
+          } else {
+            await signIn(email, password);
+          }
+          location.replace(next());
+        } catch (err) {
+          $('error').textContent = friendly(err);
+        } finally {
+          $('submit').disabled = false;
+          if ($('submit').textContent.endsWith('…')) $('submit').textContent = label;
+        }
+      });
+    }
+  </script>
+</body>
+</html>

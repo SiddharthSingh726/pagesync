@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PageSync</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#2f5d50">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><img src="icons/icon.svg" width="32" height="32" alt=""> PageSync</div>
+      <span class="spacer"></span>
+      <button class="device-chip" id="device" title="Rename this device"><i data-icon="device"></i><span></span></button>
+      <button class="btn primary" id="upload-btn"><i data-icon="upload"></i><span>Add PDF</span></button>
+      <button class="icon-btn" id="logout" title="Sign out"><i data-icon="logout"></i></button>
+      <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
+    </div>
+  </header>
+
+  <main class="library">
+    <div class="library-head">
+      <div>
+        <h1>Your library</h1>
+        <p id="summary">Loading…</p>
+        <p class="net" id="net" hidden></p>
+        <div class="usage" id="usage" hidden></div>
+      </div>
+      <input class="field search" id="search" type="search" placeholder="Search PDFs" hidden>
+    </div>
+    <div class="upload-list" id="uploads"></div>
+    <a class="continue" id="continue" hidden></a>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" hidden>
+      <i data-icon="book"></i>
+      <h2>No PDFs yet</h2>
+      <div>Add a PDF, or drop one anywhere on this page.<br>Everything you mark up will follow you to your other devices.</div>
+      <button class="btn primary" id="empty-upload"><i data-icon="upload"></i>Add your first PDF</button>
+    </div>
+    <p class="app-version" id="app-version"></p>
+  </main>
+
+  <div class="dropzone" id="dropzone" hidden>Drop PDFs to add them</div>
+
+  <script src="js/common.js"></script>
+  <script type="module" src="js/library.js"></script>
+</body>
+</html>
