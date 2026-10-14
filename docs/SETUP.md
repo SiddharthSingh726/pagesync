@@ -124,6 +124,25 @@ Every failed step tells you exactly what to change. When all six are green, big 
 
 ---
 
+## Part G: Turn on "Explain" (optional, free)
+
+Explain uses an AI model to explain a selected word in its sentence, or a whole passage, in English, simple English, Hinglish or Hindi. The free option is **Google Gemini**: you only need a Google account.
+
+1. Go to **https://aistudio.google.com**, sign in with Google, and click **Get API key → Create API key**. Copy the key.
+2. In Supabase: **Edge Functions → Secrets**, add:
+
+   | Name | Value |
+   |---|---|
+   | `AI_API_KEY` | the key you copied |
+   | `AI_DAILY_LIMIT` | explanations per person per day (optional, default `50`; emails in `UNLIMITED_EMAILS` have no limit) |
+
+3. Update the `pdf-storage` function with the latest `index.ts` (replace its code and click **Deploy**), and re-run `supabase/setup.sql` in the SQL Editor (it adds the daily counter).
+4. Open **check.html**. The **AI Explain** step should be green and show a sample answer.
+
+Other providers work too: set `AI_PROVIDER` to `groq` (free tier, key from console.groq.com) or `anthropic` (Claude; needs paid API credits), and optionally `AI_MODEL` to choose a model. With Gemini, if the main model is busy the function automatically tries `gemini-3.5-flash`, then `gemini-3.5-flash-lite`, then `gemini-2.5-flash-lite` (change the list with the `AI_FALLBACK_MODELS` secret).
+
+**Privacy:** the text you ask about (plus about a paragraph around it for context) is sent to the AI provider. On Google's free tier, Google may use that content to improve its products, so avoid Explain on confidential documents.
+
 ## Good to know
 
 - **Space.** With 1 GB each, the 10 GB free allowance fits about 9 people plus you. On Backblaze without a card, uploads simply stop at the free limit. Change `USER_QUOTA_MB` any time; it applies immediately.
@@ -142,4 +161,8 @@ Every failed step tells you exactly what to change. When all six are green, big 
 | "Please sign in again" from uploads | In the function settings, turn off *Enforce JWT verification* (Part C3). |
 | *Email not confirmed* / no email arrives | Part D3: turn off *Confirm email*, or set up SMTP. Also check spam. |
 | Reset link opens the wrong site | Part D2: Site URL and Redirect URLs. |
+| Explain says "not set up" / no Explain button | Add the `AI_API_KEY` secret and redeploy the function (Part G); then reload the PDF. |
+| Explain: "free AI service is busy" | The free tier allows a limited number of requests per minute. Wait a minute and try again. |
+| Explain: "AI service is busy" / "high demand" | Google's free model is overloaded for a moment. The function already tries backup models automatically (`AI_FALLBACK_MODELS`); just try again in a minute. |
+| Explain: "model wasn't found" | Remove `AI_MODEL` to use the default, or set it to a model your provider currently offers. |
 | *Wrong email or password* | Reset it with "Forgot password?", or in Authentication → Users. |

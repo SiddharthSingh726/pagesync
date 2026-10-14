@@ -220,6 +220,7 @@
     cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
     cloudOff: '<path d="m2 2 20 20"/><path d="M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.2"/><path d="M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10.22 5.1"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+    sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z"/>',
     textHl: '<path d="M3 20h18" stroke-width="4" stroke-opacity=".35"/><path d="m7 16 5-12 5 12"/><path d="M8.7 12h6.6"/>',
     area: '<rect x="3" y="5" width="18" height="14" rx="2" fill="currentColor" fill-opacity=".22" stroke-dasharray="3 2.5"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',

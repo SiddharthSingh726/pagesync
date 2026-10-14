@@ -169,11 +169,25 @@
       }
       await backend.callStorage('selftest-cleanup').catch(() => {}); // remove the test file even if a step failed
 
-      // 6. limits
+      // 6. AI Explain (optional)
+      const s7 = step('AI Explain (optional)');
+      if (!limits.aiEnabled) {
+        s7.warn('Not set up. Add an <code>AI_API_KEY</code> secret to the function to turn on "Explain" (a free Google Gemini key works). Everything else works without it.');
+      } else {
+        try {
+          const r = await backend.callStorage('explain', { text: 'photosynthesis', sentence: 'Plants use photosynthesis to make their own food.', mode: 'word', language: 'english' });
+          s7.ok(`Working. Sample answer: “${esc(r.explanation.replace(/\*\*/g, '').slice(0, 110))}…”`);
+        } catch (e) {
+          s7.fail(esc(e.message));
+        }
+      }
+
+      // 7. limits
       const s6 = step('Your limits');
       s6.ok(
         `PDFs up to <b>${mb(limits.maxFileBytes)}</b> each · ` +
           (limits.quotaBytes == null ? '<b>no storage limit</b> for you' : `<b>${mb(limits.quotaBytes)}</b> per person (you've used ${mb(limits.usedBytes)})`) +
+          (limits.aiEnabled ? ` · ${limits.aiDailyLimit == null ? 'unlimited' : limits.aiDailyLimit + ' per day'} AI explanations` : '') +
           (limits.isAdmin ? ' · you are an admin' : '')
       );
       done();

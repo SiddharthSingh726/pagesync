@@ -101,6 +101,38 @@ create trigger protect_document_fields
   before insert or update on public.documents
   for each row execute function public.protect_document_fields();
 
+-- ------------------------------------------------ AI "Explain" usage (v4)
+-- Counts explanations per person per day, so the free AI quota is shared fairly.
+create table if not exists public.ai_usage (
+  owner uuid not null references auth.users (id) on delete cascade,
+  day   date not null default (now() at time zone 'utc')::date,
+  count integer not null default 0,
+  primary key (owner, day)
+);
+alter table public.ai_usage enable row level security;
+revoke all on public.ai_usage from anon, authenticated;
+grant all on public.ai_usage to service_role;
+
+-- Adds one to today's count and returns it, or returns -1 if the daily limit is already reached.
+create or replace function public.bump_ai_usage(p_owner uuid, p_limit integer)
+returns integer
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  insert into ai_usage as u (owner, day, count)
+  values (p_owner, (now() at time zone 'utc')::date, 1)
+  on conflict (owner, day) do update set count = u.count + 1
+    where u.count < p_limit
+  returning count into v_count;
+  return coalesce(v_count, -1);
+end;
+$$;
+revoke execute on function public.bump_ai_usage(uuid, integer) from public, anon, authenticated;
+grant  execute on function public.bump_ai_usage(uuid, integer) to service_role;
+
 -- ------------------------------------------------------- row level security
 -- Every row belongs to the signed-in user who created it. Nobody else can
 -- read or change it, even with the public key.

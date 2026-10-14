@@ -484,3 +484,31 @@ body.night .viewer { background: #0f0e0d; }
 /* version label */
 .menu-foot { padding: 8px 10px 4px; font-size: 11.5px; color: var(--ink-3); border-top: 1px solid var(--line); margin-top: 4px; }
 .app-version { margin-top: 40px; text-align: center; font-size: 12px; color: var(--ink-3); }
+
+/* =========================================================== Explain card */
+.explain-card {
+  position: fixed; z-index: 70; right: 16px; top: 64px; width: min(400px, calc(100vw - 32px));
+  max-height: calc(100vh - 170px); overflow: auto; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px 12px;
+  display: flex; flex-direction: column; gap: 10px; animation: toast-in .15s ease-out;
+}
+.ex-head { display: flex; align-items: center; gap: 8px; }
+.ex-title { display: flex; align-items: center; gap: 6px; font-weight: 700; flex: 1; }
+.ex-title .i { color: var(--accent); }
+.ex-lang { height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); padding: 0 6px; font-size: 13px; }
+.ex-close { width: 32px; height: 32px; }
+.ex-quote { margin: 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-2); font-style: italic; }
+.ex-body { font-size: 14.5px; line-height: 1.55; }
+.ex-body p { margin: 0 0 8px; }
+.ex-body ul { margin: 0 0 8px; padding-left: 20px; }
+.ex-body strong { color: var(--accent); }
+.ex-loading { display: flex; align-items: center; gap: 10px; color: var(--ink-2); padding: 8px 0; }
+.ex-loading .spinner { width: 20px; height: 20px; border-width: 2.5px; }
+.ex-error { color: var(--danger); }
+.ex-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.ex-actions .btn { height: 34px; padding: 0 10px; font-size: 13px; }
+.ex-actions .btn .i { width: 16px; height: 16px; }
+.ex-foot { font-size: 11.5px; color: var(--ink-3); }
+@media (max-width: 760px) {
+  .explain-card { left: 0; right: 0; top: auto; bottom: 0; width: 100%; max-height: 72vh; border-radius: 18px 18px 0 0; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+}

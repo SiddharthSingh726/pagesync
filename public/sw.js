@@ -1,6 +1,6 @@
 /* PageSync service worker — lets the app open with no internet.
    PDFs and notes are stored separately by the app (IndexedDB); this only caches the app itself. */
-const VERSION = 'pagesync-v3.2.2'; // keep in sync with APP_VERSION in js/backend.js
+const VERSION = 'pagesync-v3.3.0'; // keep in sync with APP_VERSION in js/backend.js
 const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.105.4/+esm';
 const SHELL = [
   './',

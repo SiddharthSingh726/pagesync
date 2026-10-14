@@ -472,6 +472,11 @@ export async function uploadPdf(file, onProgress = () => {}) {
   return toDoc(row);
 }
 
+/** AI explanation of selected text (word in its sentence, or a whole passage). */
+export function explainText(payload) {
+  return callStorage('explain', payload);
+}
+
 export async function renameDoc(id, name) {
   await run(sb.from('documents').update({ name: cleanFileName(name) }).eq('id', id));
 }
@@ -640,7 +645,7 @@ export function subscribeDoc(docId, { onAnnotation, onDocument, onDeleted, onSta
 
 /** Shown in the ⋮ menu and the library, so you can check which version a device is running.
  *  Keep it equal to VERSION in sw.js ("pagesync-v" + this). */
-export const APP_VERSION = '3.2.2';
+export const APP_VERSION = '3.3.0';
 
 /**
  * Offline support + safe updates.

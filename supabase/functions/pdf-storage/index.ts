@@ -15,6 +15,13 @@
 // Optional:
 //   S3_REGION             normally worked out from S3_ENDPOINT ("auto" for R2)
 //   ADMIN_EMAILS          emails allowed to run the setup check fixes (UNLIMITED_EMAILS count too)
+// AI "Explain" (optional):
+//   AI_API_KEY            e.g. a free Google Gemini key from https://aistudio.google.com
+//   AI_PROVIDER           gemini (default) | anthropic | groq | openai
+//   AI_MODEL              override the model (defaults below)
+//   AI_FALLBACK_MODELS    Gemini only: comma-separated models to try when the main one is busy
+//                         (default gemini-3.5-flash,gemini-3.5-flash-lite,gemini-2.5-flash-lite)
+//   AI_DAILY_LIMIT        explanations per person per day (default 50; UNLIMITED_EMAILS have none)
 //   MAX_FILE_MB           largest PDF allowed (default 300)
 //   USER_QUOTA_MB         storage per user (default 1024 = 1 GB)
 //   UNLIMITED_EMAILS      comma-separated emails with no quota (e.g. yours)
@@ -76,6 +83,17 @@ function settings() {
     quotaBytes: Number(env('USER_QUOTA_MB', 1024)) * MB,
     unlimited: emails('UNLIMITED_EMAILS'),
     admins: [...emails('ADMIN_EMAILS'), ...emails('UNLIMITED_EMAILS')],
+    ai: {
+      provider: String(env('AI_PROVIDER', 'gemini')).trim().toLowerCase(),
+      key: String(env('AI_API_KEY') || env('GEMINI_API_KEY') || '').trim(),
+      model: String(env('AI_MODEL', '')).trim(),
+      fallbacks: String(env('AI_FALLBACK_MODELS', 'gemini-3.5-flash,gemini-3.5-flash-lite,gemini-2.5-flash-lite'))
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
+      baseUrl: String(env('AI_BASE_URL', '')).trim().replace(/\/+$/, ''),
+      dailyLimit: Math.max(1, Number(env('AI_DAILY_LIMIT', 50)) || 50),
+    },
   };
 }
 
@@ -284,6 +302,8 @@ async function limits(cfg, user) {
     maxFileBytes: cfg.maxFileBytes,
     quotaBytes: quotaFor(cfg, user),
     usedBytes: await usedBytes(cfg, user.id),
+    aiEnabled: !!cfg.ai.key,
+    aiDailyLimit: quotaFor(cfg, user) === null ? null : cfg.ai.dailyLimit,
   };
 }
 
@@ -392,6 +412,158 @@ async function remove(cfg, user, { docId }) {
   return { ok: true };
 }
 
+/* ------------------------------------------------------- AI "Explain" */
+
+const LANGUAGES = {
+  english: 'English',
+  simple: 'very simple English (short sentences, everyday words)',
+  hindi: 'Hindi in Devanagari script, keeping technical terms in English in brackets',
+  hinglish: 'Hinglish (Hindi written in Latin letters, naturally mixing in English words)',
+};
+
+const clip = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+export function buildPrompt({ text, sentence, context, docName, mode, language, previous }) {
+  const lang = LANGUAGES[language] || LANGUAGES.english;
+  const system =
+    'You are a patient tutor helping a student understand the PDF they are reading. ' +
+    'Be accurate and clear. Base your answer on the given text; if it is not enough, give the most likely meaning and say so briefly. ' +
+    `No greetings or closing remarks. Write in ${lang}. Use **bold** only for the labels in the format. Keep the whole answer under 140 words.`;
+  const doc = docName ? `Document: "${docName}"\n` : '';
+  if (mode === 'simpler') {
+    return {
+      system,
+      prompt:
+        `${doc}Original text: "${text}"\n\nA student still found this explanation hard:\n"${previous}"\n\n` +
+        'Explain it again much more simply, as if to a 12-year-old: 2–4 very short sentences, everyday words, and one small analogy if it helps. No labels.',
+    };
+  }
+  if (mode === 'word') {
+    const kind = /\s/.test(text) ? 'phrase' : 'word';
+    return {
+      system,
+      prompt:
+        `${doc}Sentence: "${sentence || text}"\n` +
+        (context ? `Nearby text: "${context}"\n` : '') +
+        `\nExplain the ${kind} "${text}" as it is used in that sentence.\n\nFormat exactly:\n` +
+        '**Meaning here:** 1–2 sentences on what it means in this sentence.\n' +
+        '**Simple definition:** a short everyday definition.\n' +
+        '**Example:** one short new example sentence.\n' +
+        'If it has a quite different common meaning, add **Also means:** in one line.',
+    };
+  }
+  return {
+    system,
+    prompt:
+      `${doc}` +
+      (context ? `Nearby text: "${context}"\n` : '') +
+      `\nExplain this passage: "${text}"\n\nFormat exactly:\n` +
+      '**In simple words:** 2–4 plain sentences saying what it means.\n' +
+      '**Key terms:** up to 4 lines, each "- term: meaning", for the hardest words (leave out if there are none).\n' +
+      '**Why it matters here:** one sentence linking it to the nearby text.',
+  };
+}
+
+/** Ask the configured AI provider. Returns plain text. */
+export async function callAI(ai, system, prompt, fetchImpl = fetch) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  const post = async (url, headers, body) => {
+    let res;
+    try {
+      res = await fetchImpl(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: controller.signal });
+    } catch (e) {
+      throw new HttpError(504, e?.name === 'AbortError' ? 'The AI took too long to answer. Please try again.' : 'Could not reach the AI service.');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data?.error?.message || data?.error?.type || data?.message || `status ${res.status}`;
+      const busy = res.status === 429 || res.status === 500 || res.status === 503 || res.status === 529 || /overload|high demand|unavailable/i.test(msg);
+      if (busy) throw Object.assign(new HttpError(res.status === 429 ? 429 : 503, 'The free AI service is busy right now. Please try again in a minute.'), { retryable: true });
+      if (res.status === 401 || res.status === 403) throw new HttpError(502, `The AI service rejected the key (${msg}). Check the AI_API_KEY secret.`);
+      if (res.status === 404 || (res.status === 400 && /model/i.test(msg) && /not (found|supported|available)|no longer/i.test(msg)))
+        throw Object.assign(new HttpError(502, `The AI model wasn't found (${msg}). Check the AI_MODEL secret.`), { missingModel: true });
+      throw new HttpError(502, `AI service error: ${msg}`);
+    }
+    return data;
+  };
+  try {
+    const p = ai.provider;
+    if (p === 'anthropic' || p === 'claude') {
+      const data = await post(`${ai.baseUrl || 'https://api.anthropic.com'}/v1/messages`, { 'x-api-key': ai.key, 'anthropic-version': '2023-06-01' }, {
+        model: ai.model || 'claude-haiku-5-5',
+        max_tokens: 800,
+        system,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      return (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    }
+    if (p === 'groq' || p === 'openai' || p === 'openai-compatible') {
+      const base = ai.baseUrl || (p === 'groq' ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1');
+      const data = await post(`${base}/chat/completions`, { Authorization: `Bearer ${ai.key}` }, {
+        model: ai.model || (p === 'groq' ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini'),
+        temperature: 0.3,
+        max_tokens: 800,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+      });
+      return String(data.choices?.[0]?.message?.content || '').trim();
+    }
+    // default: Google Gemini. If the main model is busy (or retired), quietly try the fallbacks.
+    const models = [...new Set([ai.model || 'gemini-3.8-flash', ...(ai.fallbacks || [])])];
+    let firstErr = null;
+    for (let i = 0; i < models.length; i++) {
+      let data;
+      try {
+        data = await post(`${ai.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'}/models/${encodeURIComponent(models[i])}:generateContent`, { 'x-goog-api-key': ai.key }, {
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+        });
+      } catch (e) {
+        if (!(e?.retryable || e?.missingModel) || controller.signal.aborted) throw e;
+        if (!firstErr || (firstErr.missingModel && e.retryable)) firstErr = e;
+        continue;
+      }
+      const cand = data.candidates?.[0];
+      const out = (cand?.content?.parts || []).map((x) => x.text || '').join('').trim();
+      if (!out && (cand?.finishReason === 'SAFETY' || data.promptFeedback?.blockReason)) throw new HttpError(422, "The AI declined to explain this text. Try selecting a different part.");
+      return out;
+    }
+    throw firstErr || new HttpError(502, 'AI service error.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function explain(cfg, user, body) {
+  if (!cfg.ai.key) throw new HttpError(501, 'Explain is not set up yet. The owner needs to add an AI_API_KEY secret to the pdf-storage function (see the setup guide).');
+  const text = clip(body.text, 1500);
+  if (!text) throw new HttpError(400, 'Select some text to explain.');
+  const mode = ['word', 'passage', 'simpler'].includes(body.mode) ? body.mode : text.split(' ').length <= 4 ? 'word' : 'passage';
+  const args = {
+    text,
+    mode,
+    sentence: clip(body.sentence, 800),
+    context: clip(body.context, 2500),
+    docName: clip(body.docName, 200),
+    language: LANGUAGES[body.language] ? body.language : 'english',
+    previous: clip(body.previous, 1500),
+  };
+  let remaining = null;
+  if (quotaFor(cfg, user) !== null) {
+    const n = Number(await db(cfg, 'POST', 'rpc/bump_ai_usage', { p_owner: user.id, p_limit: cfg.ai.dailyLimit }, ''));
+    if (n === -1) throw new HttpError(429, `You've used all ${cfg.ai.dailyLimit} explanations for today. They reset every day at midnight UTC (5:30 AM in India).`);
+    remaining = Math.max(0, cfg.ai.dailyLimit - n);
+  }
+  const { system, prompt } = buildPrompt(args);
+  const explanation = await callAI(cfg.ai, system, prompt);
+  if (!explanation) throw new HttpError(502, 'The AI returned an empty answer. Please try again.');
+  return { explanation, mode, remaining, dailyLimit: remaining === null ? null : cfg.ai.dailyLimit };
+}
+
 /* ---------------------------------------------- setup check (check.html) */
 
 const SELFTEST_KEY = (userId) => `${userId}/_pagesync_selftest.txt`;
@@ -455,6 +627,7 @@ async function fixCors(cfg, user, { origins = [] }, req) {
 }
 
 const ACTIONS = {
+  explain,
   selftest,
   'selftest-cleanup': selftestCleanup,
   'fix-cors': fixCors,

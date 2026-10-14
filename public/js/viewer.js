@@ -54,6 +54,7 @@ const state = {
   outline: null,
   panelTab: 'notes',
   lastCommitAt: 0,
+  aiEnabled: false,
 };
 
 function mergeStyles(saved) {
@@ -123,6 +124,7 @@ async function init() {
   setupSearch();
   setupPanelTabs();
   setNight(storage.get('ps_night', false));
+  backend.getLimits().then((l) => (state.aiEnabled = !!l?.aiEnabled)).catch(() => {});
   renderAllAnnotations();
   scheduleVisible();
   updateUndoButtons();
@@ -2003,6 +2005,7 @@ function setupSelectionBar() {
           <button data-sel="underline" title="Underline">${icon('underline')}</button>
           <button data-sel="strike" title="Strikethrough">${icon('strike')}</button>
           <span class="sep"></span>
+          ${state.aiEnabled ? `<button data-sel="explain" title="Explain with AI">${icon('sparkle')}Explain</button>` : ''}
           <button data-sel="copy" title="Copy text">${icon('copy')}Copy</button>`;
         selBar.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the selection
         selBar.onclick = async (e) => {
@@ -2013,6 +2016,15 @@ function setupSelectionBar() {
             await copyText(now.map((x) => x.text).join(' '));
             getSelection()?.removeAllRanges();
             return hideSelBar();
+          }
+          if (act === 'explain') {
+            const text = now.map((x) => x.text).join(' ');
+            const range = getSelection().getRangeAt(0);
+            const { starts } = await pageString(now[0].p.num);
+            const near = offsetInPage(now[0].p, range.startContainer, range.startOffset, starts);
+            getSelection()?.removeAllRanges();
+            hideSelBar();
+            return openExplain({ text, page: now[0].p.num, parts: now, near });
           }
           createMarks(now, act);
         };
@@ -2049,6 +2061,7 @@ function openAnnMenu(a, x, y) {
           .join('') + '<span class="sep"></span>'
       : '') +
     `<button data-act="note" title="${a.note ? 'Edit note' : 'Add note'}">${icon('note')}${a.note ? 'Note' : 'Add note'}</button>` +
+    (a.type === 'texthl' && state.aiEnabled ? `<button data-act="explain" title="Explain with AI">${icon('sparkle')}Explain</button>` : '') +
     (a.type === 'texthl' ? `<button data-act="copy" title="Copy text">${icon('copy')}</button>` : '') +
     `<button data-act="delete" class="danger" title="Delete">${icon('trash')}</button>`;
   document.body.appendChild(annMenu);
@@ -2071,6 +2084,11 @@ function openAnnMenu(a, x, y) {
     if (act === 'copy') {
       await copyText(a.text || '');
       return closeAnnMenu();
+    }
+    if (act === 'explain') {
+      closeAnnMenu();
+      const { starts } = await pageString(a.page);
+      return openExplain({ text: a.text || '', page: a.page, fromAnnId: a.id, near: offsetOfMark(a, starts) });
     }
     if (act === 'delete') {
       closeAnnMenu();
@@ -2329,5 +2347,215 @@ function setupPanelTabs() {
     };
   }
 }
+
+/* =========================================================== AI "Explain" */
+
+const EXPLAIN_LANGS = [
+  ['english', 'English'],
+  ['simple', 'Simple English'],
+  ['hinglish', 'Hinglish'],
+  ['hindi', 'हिंदी (Hindi)'],
+];
+let explain = null; // { text, page, sentence, context, mode, answer, fromAnnId, parts, card }
+const explainCache = new Map();
+
+/** Page text plus where each text piece starts in it (pieces are in the same order as the text layer's spans). */
+async function pageString(n) {
+  const tc = await pageTextContent(n);
+  const starts = [];
+  let page = '';
+  for (const it of tc.items) {
+    starts.push(page.length);
+    page += (it.str || '') + (it.hasEOL ? ' ' : '');
+  }
+  return { page, starts };
+}
+
+/** Where a text-layer position (span + offset) sits in the page text. */
+function offsetInPage(p, node, offset, starts) {
+  const span = node?.nodeType === 3 ? node.parentElement : node;
+  const idx = p.textDivs ? p.textDivs.indexOf(span) : -1;
+  return idx >= 0 ? starts[idx] + (node.nodeType === 3 ? offset : 0) : null;
+}
+
+/** Where a saved highlight starts in the page text (from its first box on screen). */
+function offsetOfMark(a, starts) {
+  const p = state.pages[a.page - 1];
+  const r = a.rects?.[0];
+  if (!p?.textDivs || !r) return null;
+  const pr = p.el.getBoundingClientRect();
+  const x = pr.left + (r[0] + 0.002) * pr.width;
+  const y = pr.top + (r[1] + r[3] / 2) * pr.height;
+  for (let i = 0; i < p.textDivs.length; i++) {
+    const b = p.textDivs[i].getBoundingClientRect();
+    if (x >= b.left - 1 && x <= b.right + 1 && y >= b.top && y <= b.bottom) return starts[i];
+  }
+  return null;
+}
+
+/**
+ * The sentence around `text` on page n, plus nearby text, for context.
+ * `near` = where the selection really is (the same word can appear many times on a page).
+ */
+async function contextFor(n, text, near = null) {
+  try {
+    const { page } = await pageString(n);
+    const words = text.trim().split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const re = new RegExp(words.join('\\s*'), 'gi');
+    let best = null;
+    for (const m of page.matchAll(re)) {
+      if (best === null || (near !== null && Math.abs(m.index - near) < Math.abs(best.index - near))) best = { index: m.index, len: m[0].length };
+      if (near === null) break;
+    }
+    const flat = (t) => t.replace(/\s+/g, ' ').trim();
+    if (!best) return { sentence: flat(text), context: flat(page.slice(0, 1400)) };
+    const i = best.index;
+    const end = i + best.len;
+    let st = i;
+    while (st > 0 && i - st < 500 && !/[.!?]\s/.test(page.slice(st - 2, st))) st--;
+    let e = end;
+    while (e < page.length && e - end < 500 && !/[.!?]/.test(page[e - 1] || '')) e++;
+    return { sentence: flat(page.slice(st, e)), context: flat(page.slice(Math.max(0, i - 700), Math.min(page.length, end + 700))) };
+  } catch {
+    return { sentence: text, context: '' };
+  }
+}
+
+function renderAnswer(text) {
+  const inline = (t) => escapeHtml(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const out = [];
+  let list = [];
+  const flush = () => {
+    if (list.length) out.push(`<ul>${list.map((li) => `<li>${inline(li)}</li>`).join('')}</ul>`);
+    list = [];
+  };
+  for (const raw of text.split(/\n+/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = /^[-*•]\s+(.*)$/.exec(line);
+    if (m) list.push(m[1]);
+    else {
+      flush();
+      out.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  flush();
+  return out.join('');
+}
+
+const plainAnswer = (t) => t.replace(/\*\*(.+?)\*\*/g, '$1').trim();
+
+function closeExplain() {
+  explain?.card.remove();
+  explain = null;
+}
+
+async function openExplain({ text, page, fromAnnId = null, parts = null, near = null }) {
+  closeExplain();
+  text = text.replace(/\s+/g, ' ').trim();
+  if (!text) return;
+  const words = text.split(' ').length;
+  const card = document.createElement('div');
+  card.className = 'explain-card';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-label', 'Explain');
+  card.innerHTML = `
+    <div class="ex-head">
+      <span class="ex-title">${icon('sparkle')}Explain</span>
+      <select class="ex-lang" aria-label="Language">${EXPLAIN_LANGS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+      <button class="icon-btn ex-close" title="Close">${icon('x')}</button>
+    </div>
+    <blockquote class="ex-quote"></blockquote>
+    <div class="ex-body"></div>
+    <div class="ex-actions" hidden>
+      <button class="btn" data-ex="simpler">Explain simpler</button>
+      <button class="btn" data-ex="save">${icon('note')}Save as note</button>
+      <button class="btn" data-ex="copy">${icon('copy')}Copy</button>
+    </div>
+    <div class="ex-foot"></div>`;
+  card.querySelector('.ex-quote').textContent = text.length > 280 ? text.slice(0, 280) + '…' : text;
+  const lang = card.querySelector('.ex-lang');
+  lang.value = storage.get('ps_explain_lang', 'english');
+  document.body.appendChild(card);
+  explain = { text, page, fromAnnId, parts, card, mode: words <= 4 ? 'word' : 'passage', answer: '', sentence: '', context: '' };
+  const mine = explain;
+
+  card.querySelector('.ex-close').onclick = closeExplain;
+  lang.onchange = () => {
+    storage.set('ps_explain_lang', lang.value);
+    runExplain(mine.mode === 'simpler' ? (mine.baseMode || 'word') : mine.mode);
+  };
+  card.querySelector('.ex-actions').onclick = async (e) => {
+    const act = e.target.closest('[data-ex]')?.dataset.ex;
+    if (!act || !mine.answer) return;
+    if (act === 'copy') return copyText(plainAnswer(mine.answer));
+    if (act === 'simpler') return runExplain('simpler');
+    if (act === 'save') return saveExplanation(mine);
+  };
+
+  const ctx = await contextFor(page, text, near);
+  if (explain !== mine) return;
+  Object.assign(mine, ctx);
+  runExplain(mine.mode);
+}
+
+async function runExplain(mode) {
+  const ex = explain;
+  if (!ex) return;
+  const language = ex.card.querySelector('.ex-lang').value;
+  if (mode !== 'simpler') ex.baseMode = mode;
+  const previous = mode === 'simpler' ? plainAnswer(ex.answer) : '';
+  ex.mode = mode;
+  const body = ex.card.querySelector('.ex-body');
+  const actions = ex.card.querySelector('.ex-actions');
+  const foot = ex.card.querySelector('.ex-foot');
+  const key = [mode, language, ex.text, ex.sentence, previous].join('|');
+  body.innerHTML = '<div class="ex-loading"><div class="spinner"></div>Thinking…</div>';
+  actions.hidden = true;
+  try {
+    let res = explainCache.get(key);
+    if (!res) {
+      if (!navigator.onLine) throw Object.assign(new Error("You're offline. Explain needs an internet connection."), { offline: true });
+      res = await backend.explainText({ text: ex.text, sentence: ex.sentence, context: ex.context, docName: state.doc.name, mode, language, previous });
+      explainCache.set(key, res);
+    }
+    if (explain !== ex) return;
+    ex.answer = res.explanation;
+    body.innerHTML = renderAnswer(res.explanation);
+    actions.hidden = false;
+    actions.querySelector('[data-ex="simpler"]').hidden = mode === 'simpler';
+    foot.textContent = (res.remaining != null ? `${res.remaining} of ${res.dailyLimit} explanations left today · ` : '') + 'AI can make mistakes; check important facts.';
+  } catch (err) {
+    if (explain !== ex) return;
+    body.innerHTML = `<p class="ex-error">${escapeHtml(err.offline ? "You're offline. Explain needs an internet connection." : err.message || 'Something went wrong.')}</p>`;
+    foot.textContent = '';
+  }
+}
+
+function saveExplanation(ex) {
+  const text = plainAnswer(ex.answer).slice(0, 4000);
+  if (ex.fromAnnId) {
+    const before = state.anns.get(ex.fromAnnId);
+    if (!before) return toast('That highlight was deleted.', { error: true });
+    const note = before.note ? `${before.note}\n\n${text}` : text;
+    commit([{ id: before.id, before, after: { ...before, note } }]);
+  } else if (ex.parts?.length) {
+    const s = styleFor('texthl');
+    const now = Date.now();
+    const changes = ex.parts.map((part, i) => {
+      const a = { id: uid(), type: 'texthl', page: part.p.num, rects: part.rects, mode: 'highlight', color: s.color, text: part.text.slice(0, 5000), createdAt: now };
+      if (i === 0) a.note = text;
+      return { id: a.id, before: null, after: a };
+    });
+    commit(changes);
+    ex.fromAnnId = changes[0].id; // saving again adds to the same note
+    ex.parts = null;
+  }
+  toast('Saved as a note on this text.');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && explain) closeExplain();
+});
 
 init();

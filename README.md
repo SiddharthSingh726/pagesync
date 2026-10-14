@@ -27,6 +27,11 @@ It started as a small app running on my own computer. It's now a cloud app with 
 - Freehand highlighter, pen, text boxes, sticky notes, area highlight (handy for scanned pages), eraser, undo/redo.
 - **Search inside the PDF**, **table of contents** navigation and **night reading** mode.
 
+**Understanding hard text**
+- **Explain with AI:** select a difficult word and get its meaning *in that exact sentence*, a simple definition and an example, or select a whole passage and get it in plain words with the key terms broken down.
+- Explanations in English, simple English, Hinglish or Hindi, with **Explain simpler** for a second try and **Save as note** to keep the explanation attached to the text.
+- Runs on Google Gemini's free tier by default (Claude and Groq also supported), with a fair daily limit per person.
+
 **Syncing**
 - **Live sync**: a change on one device appears on your others within about a second.
 - **Resume where you stopped**: "Resumed on page 42 from Laptop".
@@ -59,7 +64,8 @@ It started as a small app running on my own computer. It's now a cloud app with 
    ├── Supabase Auth ........ sign up, sign in, password reset
    ├── Supabase Postgres .... documents + annotations, protected by Row Level Security
    ├── Supabase Realtime .... pushes every change to your other open devices
-   └── Edge Function ........ checks login, file-size limit and quota → short-lived signed URLs
+   └── Edge Function ........ checks login, file-size limit and quota → short-lived signed URLs;
+            │                  calls the AI model for "Explain" (key kept server-side, daily limit per person)
             │
             └── S3-compatible storage (Backblaze B2 / Cloudflare R2 / AWS S3)
                  the browser uploads and downloads PDFs directly with those signed URLs
@@ -72,6 +78,7 @@ It started as a small app running on my own computer. It's now a cloud app with 
 - **The PDF file is never modified.** Annotations are stored as small JSON records, with positions saved as fractions of the page so they line up at any zoom level and screen size. Syncing a highlight costs a few hundred bytes instead of re-uploading the whole file, and there are never "conflicted copies".
 - **Conflicts are resolved per annotation.** The newest edit wins, using a server-side SQL function. Deletions leave a *tombstone*, so a device that was offline can't bring a deleted highlight back by accident; only an explicit undo can restore it.
 - **Offline-first sync.** Every change goes into a local queue (localStorage) before it's sent. If the network drops, the queue retries, and on reconnect the app re-downloads the server state and replays anything still pending.
+- **Explanations use the exact spot you selected.** A word like "charge" can appear many times on a page, so the app maps your selection back to its position in the page text and sends that sentence and paragraph as context, not just the word.
 - **Text highlights snap to real text.** PDF.js renders an invisible text layer. I map pointer positions to characters with `caretPositionFromPoint`, then merge the character boxes into one rectangle per line.
 - **Storage keys never reach the browser.** An Edge Function verifies the user and their quota, then signs AWS Signature V4 URLs (implemented by hand with Web Crypto and checked against AWS's official test vector) that are valid for one file in that user's folder only.
 - **Quotas can't be faked.** The server measures file sizes, a database trigger stops users from editing a document's size or storage location, and uploads still in progress count toward the quota.
@@ -82,6 +89,7 @@ It started as a small app running on my own computer. It's now a cloud app with 
 - **PDF:** [PDF.js](https://mozilla.github.io/pdf.js/) for rendering and the text layer; [pdf-lib](https://pdf-lib.js.org/) for exporting annotated PDFs
 - **Backend:** [Supabase](https://supabase.com): PostgreSQL (Row Level Security, PL/pgSQL), Auth, Realtime, Edge Functions (Deno / TypeScript)
 - **Storage:** S3-compatible object storage with presigned multipart uploads
+- **AI:** Google Gemini API (or Anthropic Claude / Groq) called from the Edge Function
 - **Hosting:** Netlify
 
 ## Run your own copy
@@ -93,6 +101,7 @@ Everything runs on free tiers. The full step-by-step guide is in **[docs/SETUP.m
 3. Deploy [`supabase/functions/pdf-storage`](supabase/functions/pdf-storage/index.ts) and add your storage keys as secrets.
 4. Put your Supabase URL and publishable key in [`public/config.js`](public/config.js).
 5. Deploy the `public/` folder to Netlify, then open `/check.html` to verify everything.
+6. Optional: add a free Gemini API key to turn on **Explain**.
 
 To preview locally, run `node serve.js` and open [http://localhost:5173](http://localhost:5173).
 
