@@ -173,6 +173,8 @@
       const s7 = step('AI Explain (optional)');
       if (!limits.aiEnabled) {
         s7.warn('Not set up. Add an <code>AI_API_KEY</code> secret to the function to turn on "Explain" (a free Google Gemini key works). Everything else works without it.');
+      } else if (limits.aiCounterOk === false) {
+        s7.fail('The AI key works for you, but other users will get an error: the daily counter is missing from the database. Open Supabase → <b>SQL Editor</b>, paste all of <code>supabase/setup.sql</code> and click <b>Run</b>, then run this check again.');
       } else {
         try {
           const r = await backend.callStorage('explain', { text: 'photosynthesis', sentence: 'Plants use photosynthesis to make their own food.', mode: 'word', language: 'english' });

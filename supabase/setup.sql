@@ -275,3 +275,6 @@ begin
 end $$;
 
 -- Done! Next: deploy the pdf-storage function (see README) for files up to 300 MB.
+
+-- Tell the API to pick up new or changed functions straight away.
+notify pgrst, 'reload schema';

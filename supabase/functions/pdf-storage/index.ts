@@ -304,7 +304,31 @@ async function limits(cfg, user) {
     usedBytes: await usedBytes(cfg, user.id),
     aiEnabled: !!cfg.ai.key,
     aiDailyLimit: quotaFor(cfg, user) === null ? null : cfg.ai.dailyLimit,
+    // For the setup check: is the daily counter (from setup.sql) in the database?
+    aiCounterOk: cfg.ai.key && isAdmin(cfg, user) ? await aiCounterReady(cfg, user) : undefined,
   };
+}
+
+const AI_COUNTER_MISSING =
+  "Explain isn't fully set up: the daily counter is missing from the database. The owner needs to run the latest supabase/setup.sql in Supabase → SQL Editor.";
+
+async function bumpAiUsage(cfg, owner, limit) {
+  try {
+    return Number(await db(cfg, 'POST', 'rpc/bump_ai_usage', { p_owner: owner, p_limit: limit }, ''));
+  } catch (e) {
+    if (/PGRST202|PGRST205|42P01|42883|bump_ai_usage|ai_usage/.test(String(e?.message))) throw new HttpError(503, AI_COUNTER_MISSING);
+    throw e;
+  }
+}
+
+/** Admins are unlimited, so their own explanations never touch the counter; check it exists anyway. */
+async function aiCounterReady(cfg, user) {
+  try {
+    await bumpAiUsage(cfg, user.id, 0); // limit 0: changes nothing once today's row exists
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function uploadStart(cfg, user, { docId, size, name }) {
@@ -554,7 +578,7 @@ async function explain(cfg, user, body) {
   };
   let remaining = null;
   if (quotaFor(cfg, user) !== null) {
-    const n = Number(await db(cfg, 'POST', 'rpc/bump_ai_usage', { p_owner: user.id, p_limit: cfg.ai.dailyLimit }, ''));
+    const n = await bumpAiUsage(cfg, user.id, cfg.ai.dailyLimit);
     if (n === -1) throw new HttpError(429, `You've used all ${cfg.ai.dailyLimit} explanations for today. They reset every day at midnight UTC (5:30 AM in India).`);
     remaining = Math.max(0, cfg.ai.dailyLimit - n);
   }
